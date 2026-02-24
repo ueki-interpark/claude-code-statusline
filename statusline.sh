@@ -53,13 +53,13 @@ fi
 
 # Line 1: Location and branch (with icons)
 if [ -n "$BRANCH" ]; then
-  LINE1="\U0001F500 ${CYAN}${SHORT_DIR}${RESET} ${DIM}on${RESET} \U0001F33F ${MAGENTA}${BRANCH}${RESET}"
+  LINE1="🔀 ${CYAN}${SHORT_DIR}${RESET} ${DIM}on${RESET} 🌿 ${MAGENTA}${BRANCH}${RESET}"
 else
-  LINE1="\U0001F4C2 ${CYAN}${SHORT_DIR}${RESET}"
+  LINE1="📂 ${CYAN}${SHORT_DIR}${RESET}"
 fi
 
 # Line 2: Model, cost, and context usage
-LINE2="\U0001F916 ${DIM}${MODEL}${RESET} | \U0001F4B0 ${GREEN}${COST_FMT}${RESET} | \U0001F9E0 ${CTX_COLOR}[${BAR}] ${USED_INT}%${RESET}"
+LINE2="🤖 ${DIM}${MODEL}${RESET} | 💰 ${GREEN}${COST_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${USED_INT}%${RESET}"
 
 echo -e "$LINE1"
 echo -e "$LINE2"
