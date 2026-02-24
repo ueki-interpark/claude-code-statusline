@@ -22,12 +22,19 @@
 
 ## 前提条件
 
+### macOS / Linux
 - **jq** - JSON解析に必要
+- **git** - ブランチ表示に使用（オプション）
+
+### Windows
+- **PowerShell 5.1+**（Windows 10/11 に標準搭載）
 - **git** - ブランチ表示に使用（オプション）
 
 ## インストール
 
-### クイックインストール
+### macOS / Linux
+
+#### クイックインストール
 
 ```bash
 git clone https://github.com/ueki-interpark/claude-code-statusline.git
@@ -40,7 +47,7 @@ cd claude-code-statusline
 2. `~/.claude/settings.json` に statusLine 設定を追加
 3. 既存の settings.json をバックアップ
 
-### 手動インストール
+#### 手動インストール
 
 1. `statusline.sh` を `~/.claude/` にコピー:
 
@@ -59,6 +66,44 @@ chmod +x ~/.claude/statusline.sh
   }
 }
 ```
+
+3. Claude Code を再起動してください。
+
+### Windows (PowerShell)
+
+#### クイックインストール
+
+```powershell
+git clone https://github.com/ueki-interpark/claude-code-statusline.git
+cd claude-code-statusline
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+インストールスクリプトは以下を行います:
+1. `statusline.ps1` を `~/.claude/` にコピー
+2. `~/.claude/settings.json` に PowerShell 用の statusLine 設定を追加
+3. 既存の settings.json をバックアップ
+
+#### 手動インストール
+
+1. `statusline.ps1` を `~/.claude/` にコピー:
+
+```powershell
+Copy-Item statusline.ps1 "$env:USERPROFILE\.claude\statusline.ps1"
+```
+
+2. `~/.claude/settings.json` に以下を追加:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/<ユーザー名>/.claude/statusline.ps1\""
+  }
+}
+```
+
+> `<ユーザー名>` は実際のユーザー名に置き換えてください。`install.ps1` を使うと自動で設定されます。
 
 3. Claude Code を再起動してください。
 
