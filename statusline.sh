@@ -67,10 +67,15 @@ fi
 
 # Shorten path to max 2 levels deep (replace $HOME with ~)
 DIR="${CWD/#$HOME/\~}"
-IFS='/' read -ra PARTS <<< "$DIR"
-DEPTH=${#PARTS[@]}
-if [ "$DEPTH" -gt 3 ]; then
-  SHORT_DIR="${PARTS[0]}/.../$(IFS='/'; echo "${PARTS[*]: -2:2}")"
+# Count slash-separated components
+COMP_COUNT=$(printf '%s' "$DIR" | tr -cd '/' | wc -c)
+if [ "$COMP_COUNT" -gt 3 ]; then
+  LAST_TWO=$(printf '%s' "$DIR" | awk -F'/' '{print $(NF-1)"/"$NF}')
+  if [[ "$DIR" == \~/* ]]; then
+    SHORT_DIR="~/.../${LAST_TWO}"
+  else
+    SHORT_DIR="/.../${LAST_TWO}"
+  fi
 else
   SHORT_DIR="$DIR"
 fi
