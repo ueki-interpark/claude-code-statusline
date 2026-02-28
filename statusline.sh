@@ -24,14 +24,14 @@ else
 fi
 ADJUSTED_USED_INT=$(printf "%.0f" "$ADJUSTED_USED")
 
-# Color definitions
-CYAN='\033[36m'
-GREEN='\033[32m'
-YELLOW='\033[33m'
-RED='\033[31m'
-MAGENTA='\033[35m'
-DIM='\033[2m'
-RESET='\033[0m'
+# Color definitions (use $'...' to embed actual escape characters)
+CYAN=$'\033[36m'
+GREEN=$'\033[32m'
+YELLOW=$'\033[33m'
+RED=$'\033[31m'
+MAGENTA=$'\033[35m'
+DIM=$'\033[2m'
+RESET=$'\033[0m'
 
 # Context usage color coding (based on adjusted percentage)
 if [ "$ADJUSTED_USED_INT" -ge 80 ]; then
@@ -73,5 +73,5 @@ fi
 # Line 2: Model, cost, and context usage
 LINE2="🤖 ${DIM}${MODEL}${RESET} | 💰 ${GREEN}${COST_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${ADJUSTED_USED}%${RESET} | 🔄 ${CTX_COLOR}${ADJUSTED_REMAINING}%${RESET}"
 
-echo -e "$LINE1"
-echo -e "$LINE2"
+printf '%s\n' "$LINE1"
+printf '%s\n' "$LINE2"
