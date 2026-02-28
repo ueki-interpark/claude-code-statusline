@@ -4,11 +4,21 @@
 
 input=$(cat)
 
-MODEL=$(echo "$input" | jq -r '.model.display_name // "unknown"')
-COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
-USED_PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
-REMAINING_PCT=$(echo "$input" | jq -r '.context_window.remaining_percentage // 0')
-CWD=$(echo "$input" | jq -r '.cwd // ""')
+# JSON parser using sed/grep (no external dependencies like jq)
+get_json_value() {
+  echo "$input" | sed 's/,/\n/g; s/[{}]//g; s/\[//g; s/\]//g' | sed 's/^ *//' | \
+    grep "\"$1\"" | sed 's/.*"'"$1"'" *: *//; s/^ *"//; s/" *$//; s/ *$//'
+}
+
+MODEL=$(get_json_value 'display_name')
+MODEL="${MODEL:-unknown}"
+COST=$(get_json_value 'total_cost_usd')
+COST="${COST:-0}"
+USED_PCT=$(get_json_value 'used_percentage')
+USED_PCT="${USED_PCT:-0}"
+REMAINING_PCT=$(get_json_value 'remaining_percentage')
+REMAINING_PCT="${REMAINING_PCT:-0}"
+CWD=$(get_json_value 'cwd')
 
 COST_FMT=$(printf '$%.4f' "$COST")
 
@@ -48,10 +58,15 @@ EMPTY=$((20 - FILLED))
 BAR=$(printf "%${FILLED}s" | tr ' ' '#')$(printf "%${EMPTY}s" | tr ' ' '-')
 
 # Normalize backslashes to forward slashes (for Windows paths)
-CWD="${CWD//\\//}"
+CWD=$(printf '%s' "$CWD" | tr '\\' '/')
+
+# Normalize Windows drive letter (C:/Users/... -> /c/Users/...)
+if [[ "$CWD" =~ ^([A-Za-z]):/ ]]; then
+  CWD="/${BASH_REMATCH[1],,}${CWD:2}"
+fi
 
 # Shorten path to max 2 levels deep (replace $HOME with ~)
-DIR="${CWD/#$HOME/~}"
+DIR="${CWD/#$HOME/\~}"
 IFS='/' read -ra PARTS <<< "$DIR"
 DEPTH=${#PARTS[@]}
 if [ "$DEPTH" -gt 3 ]; then
