@@ -15,25 +15,29 @@ MODEL=$(get_json_value 'display_name')
 MODEL="${MODEL:-unknown}"
 COST=$(get_json_value 'total_cost_usd')
 COST="${COST:-0}"
-USED_PCT=$(get_json_value 'used_percentage')
-USED_PCT="${USED_PCT:-0}"
-REMAINING_PCT=$(get_json_value 'remaining_percentage')
-REMAINING_PCT="${REMAINING_PCT:-0}"
 CWD=$(get_json_value 'cwd')
 
 COST_FMT=$(printf '$%.4f' "$COST")
 
-# Calculate adjusted percentages based on auto-compact threshold
-# threshold = used + remaining (e.g. 95 if auto-compact at 95%)
-COMPACT_THRESHOLD=$(awk "BEGIN {printf \"%g\", $USED_PCT + $REMAINING_PCT}")
-if awk "BEGIN {exit !($COMPACT_THRESHOLD > 0)}"; then
-  ADJUSTED_USED=$(awk "BEGIN {printf \"%.1f\", ($USED_PCT / $COMPACT_THRESHOLD) * 100}")
-  ADJUSTED_REMAINING=$(awk "BEGIN {printf \"%.1f\", ($REMAINING_PCT / $COMPACT_THRESHOLD) * 100}")
+# Token-based context usage calculation (with fallback to integer percentages)
+INPUT_TOKENS=$(get_json_value 'input_tokens')
+OUTPUT_TOKENS=$(get_json_value 'output_tokens')
+CACHE_CREATE=$(get_json_value 'cache_creation_input_tokens')
+CACHE_READ=$(get_json_value 'cache_read_input_tokens')
+CTX_WINDOW=$(get_json_value 'context_window_size')
+
+if [ -n "$INPUT_TOKENS" ] && [ -n "$CTX_WINDOW" ] && [ "$CTX_WINDOW" -gt 0 ] 2>/dev/null; then
+  USED_TOKENS=$(( ${INPUT_TOKENS:-0} + ${OUTPUT_TOKENS:-0} + ${CACHE_CREATE:-0} + ${CACHE_READ:-0} ))
+  USED_PCT=$(awk "BEGIN {printf \"%.1f\", ($USED_TOKENS / $CTX_WINDOW) * 100}")
+  REMAINING_PCT=$(awk "BEGIN {printf \"%.1f\", 100 - ($USED_TOKENS / $CTX_WINDOW) * 100}")
 else
-  ADJUSTED_USED="0.0"
-  ADJUSTED_REMAINING="100.0"
+  # Fallback: use integer percentages from JSON
+  USED_PCT=$(get_json_value 'used_percentage')
+  USED_PCT="${USED_PCT:-0}.0"
+  REMAINING_PCT=$(get_json_value 'remaining_percentage')
+  REMAINING_PCT="${REMAINING_PCT:-0}.0"
 fi
-ADJUSTED_USED_INT=$(printf "%.0f" "$ADJUSTED_USED")
+USED_PCT_INT=$(printf "%.0f" "$USED_PCT")
 
 # Color definitions (use $'...' to embed actual escape characters)
 CYAN=$'\033[36m'
@@ -44,17 +48,17 @@ MAGENTA=$'\033[35m'
 DIM=$'\033[2m'
 RESET=$'\033[0m'
 
-# Context usage color coding (based on adjusted percentage)
-if [ "$ADJUSTED_USED_INT" -ge 80 ]; then
+# Context usage color coding
+if [ "$USED_PCT_INT" -ge 80 ]; then
   CTX_COLOR="$RED"
-elif [ "$ADJUSTED_USED_INT" -ge 50 ]; then
+elif [ "$USED_PCT_INT" -ge 50 ]; then
   CTX_COLOR="$YELLOW"
 else
   CTX_COLOR="$GREEN"
 fi
 
-# Context usage progress bar (based on adjusted percentage)
-FILLED=$((ADJUSTED_USED_INT / 5))
+# Context usage progress bar
+FILLED=$((USED_PCT_INT / 5))
 EMPTY=$((20 - FILLED))
 BAR=$(printf "%${FILLED}s" | tr ' ' '#')$(printf "%${EMPTY}s" | tr ' ' '-')
 
@@ -95,7 +99,7 @@ else
 fi
 
 # Line 2: Model, cost, and context usage
-LINE2="🤖 ${DIM}${MODEL}${RESET} | 💰 ${GREEN}${COST_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${ADJUSTED_USED}%${RESET} | 🔄 ${CTX_COLOR}${ADJUSTED_REMAINING}%${RESET}"
+LINE2="🤖 ${DIM}${MODEL}${RESET} | 💰 ${GREEN}${COST_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${USED_PCT}%${RESET} | 🔄 ${CTX_COLOR}${REMAINING_PCT}%${RESET}"
 
 printf '%s\n' "$LINE1"
 printf '%s\n' "$LINE2"
