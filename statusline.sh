@@ -47,6 +47,9 @@ FILLED=$((ADJUSTED_USED_INT / 5))
 EMPTY=$((20 - FILLED))
 BAR=$(printf "%${FILLED}s" | tr ' ' '#')$(printf "%${EMPTY}s" | tr ' ' '-')
 
+# Normalize backslashes to forward slashes (for Windows paths)
+CWD="${CWD//\\//}"
+
 # Shorten path to max 2 levels deep (replace $HOME with ~)
 DIR="${CWD/#$HOME/~}"
 IFS='/' read -ra PARTS <<< "$DIR"
