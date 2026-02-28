@@ -25,8 +25,8 @@ COST_FMT=$(printf '$%.4f' "$COST")
 
 # Calculate adjusted percentages based on auto-compact threshold
 # threshold = used + remaining (e.g. 95 if auto-compact at 95%)
-COMPACT_THRESHOLD=$(awk "BEGIN {printf \"%.0f\", $USED_PCT + $REMAINING_PCT}")
-if [ "$COMPACT_THRESHOLD" -gt 0 ]; then
+COMPACT_THRESHOLD=$(awk "BEGIN {printf \"%g\", $USED_PCT + $REMAINING_PCT}")
+if awk "BEGIN {exit !($COMPACT_THRESHOLD > 0)}"; then
   ADJUSTED_USED=$(awk "BEGIN {printf \"%.1f\", ($USED_PCT / $COMPACT_THRESHOLD) * 100}")
   ADJUSTED_REMAINING=$(awk "BEGIN {printf \"%.1f\", ($REMAINING_PCT / $COMPACT_THRESHOLD) * 100}")
 else
