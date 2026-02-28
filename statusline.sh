@@ -7,10 +7,22 @@ input=$(cat)
 MODEL=$(echo "$input" | jq -r '.model.display_name // "unknown"')
 COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
 USED_PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
+REMAINING_PCT=$(echo "$input" | jq -r '.context_window.remaining_percentage // 0')
 CWD=$(echo "$input" | jq -r '.cwd // ""')
 
 COST_FMT=$(printf '$%.4f' "$COST")
-USED_INT=$(printf "%.0f" "$USED_PCT")
+
+# Calculate adjusted percentages based on auto-compact threshold
+# threshold = used + remaining (e.g. 95 if auto-compact at 95%)
+COMPACT_THRESHOLD=$(awk "BEGIN {printf \"%.0f\", $USED_PCT + $REMAINING_PCT}")
+if [ "$COMPACT_THRESHOLD" -gt 0 ]; then
+  ADJUSTED_USED=$(awk "BEGIN {printf \"%.1f\", ($USED_PCT / $COMPACT_THRESHOLD) * 100}")
+  ADJUSTED_REMAINING=$(awk "BEGIN {printf \"%.1f\", ($REMAINING_PCT / $COMPACT_THRESHOLD) * 100}")
+else
+  ADJUSTED_USED="0.0"
+  ADJUSTED_REMAINING="100.0"
+fi
+ADJUSTED_USED_INT=$(printf "%.0f" "$ADJUSTED_USED")
 
 # Color definitions
 CYAN='\033[36m'
@@ -21,17 +33,17 @@ MAGENTA='\033[35m'
 DIM='\033[2m'
 RESET='\033[0m'
 
-# Context usage color coding
-if [ "$USED_INT" -ge 80 ]; then
+# Context usage color coding (based on adjusted percentage)
+if [ "$ADJUSTED_USED_INT" -ge 80 ]; then
   CTX_COLOR="$RED"
-elif [ "$USED_INT" -ge 50 ]; then
+elif [ "$ADJUSTED_USED_INT" -ge 50 ]; then
   CTX_COLOR="$YELLOW"
 else
   CTX_COLOR="$GREEN"
 fi
 
-# Context usage progress bar
-FILLED=$((USED_INT / 5))
+# Context usage progress bar (based on adjusted percentage)
+FILLED=$((ADJUSTED_USED_INT / 5))
 EMPTY=$((20 - FILLED))
 BAR=$(printf "%${FILLED}s" | tr ' ' '#')$(printf "%${EMPTY}s" | tr ' ' '-')
 
@@ -59,7 +71,7 @@ else
 fi
 
 # Line 2: Model, cost, and context usage
-LINE2="🤖 ${DIM}${MODEL}${RESET} | 💰 ${GREEN}${COST_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${USED_INT}%${RESET}"
+LINE2="🤖 ${DIM}${MODEL}${RESET} | 💰 ${GREEN}${COST_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${ADJUSTED_USED}%${RESET} | 🔄 ${CTX_COLOR}${ADJUSTED_REMAINING}%${RESET}"
 
 echo -e "$LINE1"
 echo -e "$LINE2"

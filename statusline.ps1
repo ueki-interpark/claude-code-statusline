@@ -9,10 +9,24 @@ $data = $input | ConvertFrom-Json
 $Model = if ($data.model.display_name) { $data.model.display_name } else { "unknown" }
 $Cost = if ($data.cost.total_cost_usd) { $data.cost.total_cost_usd } else { 0 }
 $UsedPct = if ($data.context_window.used_percentage) { $data.context_window.used_percentage } else { 0 }
+$RemainingPct = if ($data.context_window.remaining_percentage) { $data.context_window.remaining_percentage } else { 0 }
 $Cwd = if ($data.cwd) { $data.cwd } else { "" }
 
 $CostFmt = '$' + '{0:F4}' -f [double]$Cost
-$UsedInt = [math]::Round([double]$UsedPct)
+
+# Calculate adjusted percentages based on auto-compact threshold
+# threshold = used + remaining (e.g. 95 if auto-compact at 95%)
+$CompactThreshold = [double]$UsedPct + [double]$RemainingPct
+if ($CompactThreshold -gt 0) {
+    $AdjustedUsed = ([double]$UsedPct / $CompactThreshold) * 100
+    $AdjustedRemaining = ([double]$RemainingPct / $CompactThreshold) * 100
+} else {
+    $AdjustedUsed = 0.0
+    $AdjustedRemaining = 100.0
+}
+$AdjustedUsedFmt = '{0:F1}' -f $AdjustedUsed
+$AdjustedRemainingFmt = '{0:F1}' -f $AdjustedRemaining
+$AdjustedUsedInt = [math]::Round($AdjustedUsed)
 
 # Emoji definitions (use codepoints to avoid encoding issues)
 $ICON_SHUFFLE = [char]::ConvertFromUtf32(0x1F500)  # 🔀
@@ -21,6 +35,7 @@ $ICON_BRANCH  = [char]::ConvertFromUtf32(0x1F33F)  # 🌿
 $ICON_ROBOT   = [char]::ConvertFromUtf32(0x1F916)  # 🤖
 $ICON_MONEY   = [char]::ConvertFromUtf32(0x1F4B0)  # 💰
 $ICON_BRAIN   = [char]::ConvertFromUtf32(0x1F9E0)  # 🧠
+$ICON_RECYCLE = [char]::ConvertFromUtf32(0x1F504)  # 🔄
 
 # Color definitions (ANSI escape sequences)
 $ESC = [char]27
@@ -32,17 +47,17 @@ $MAGENTA = "$ESC[35m"
 $DIM = "$ESC[2m"
 $RESET = "$ESC[0m"
 
-# Context usage color coding
-if ($UsedInt -ge 80) {
+# Context usage color coding (based on adjusted percentage)
+if ($AdjustedUsedInt -ge 80) {
     $CtxColor = $RED
-} elseif ($UsedInt -ge 50) {
+} elseif ($AdjustedUsedInt -ge 50) {
     $CtxColor = $YELLOW
 } else {
     $CtxColor = $GREEN
 }
 
-# Context usage progress bar
-$Filled = [math]::Floor($UsedInt / 5)
+# Context usage progress bar (based on adjusted percentage)
+$Filled = [math]::Floor($AdjustedUsedInt / 5)
 $Empty = 20 - $Filled
 $Bar = ('#' * $Filled) + ('-' * $Empty)
 
@@ -81,7 +96,7 @@ if ($Branch) {
 }
 
 # Line 2: Model, cost, and context usage
-$Line2 = "${ICON_ROBOT} ${DIM}${Model}${RESET} | ${ICON_MONEY} ${GREEN}${CostFmt}${RESET} | ${ICON_BRAIN} ${CtxColor}[${Bar}] ${UsedInt}%${RESET}"
+$Line2 = "${ICON_ROBOT} ${DIM}${Model}${RESET} | ${ICON_MONEY} ${GREEN}${CostFmt}${RESET} | ${ICON_BRAIN} ${CtxColor}[${Bar}] ${AdjustedUsedFmt}%${RESET} | ${ICON_RECYCLE} ${CtxColor}${AdjustedRemainingFmt}%${RESET}"
 
 Write-Host $Line1
 Write-Host $Line2
