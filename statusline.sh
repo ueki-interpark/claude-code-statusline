@@ -7,7 +7,8 @@ input=$(cat)
 # JSON parser using sed/grep (no external dependencies like jq)
 get_json_value() {
   echo "$input" | sed 's/,/\n/g; s/[{}]//g; s/\[//g; s/\]//g' | sed 's/^ *//' | \
-    grep "\"$1\"" | sed 's/.*"'"$1"'" *: *//; s/^ *"//; s/" *$//; s/ *$//'
+    grep "\"$1\"" | sed 's/.*"'"$1"'" *: *//; s/^ *"//; s/" *$//; s/ *$//' | \
+    sed 's/\\\\/\\/g'
 }
 
 MODEL=$(get_json_value 'display_name')
