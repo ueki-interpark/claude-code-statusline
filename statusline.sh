@@ -25,6 +25,11 @@ OUTPUT_TOKENS=$(get_json_value 'output_tokens')
 CACHE_CREATE=$(get_json_value 'cache_creation_input_tokens')
 CACHE_READ=$(get_json_value 'cache_read_input_tokens')
 CTX_WINDOW=$(get_json_value 'context_window_size')
+[[ "$INPUT_TOKENS" == "null" ]] && INPUT_TOKENS=""
+[[ "$OUTPUT_TOKENS" == "null" ]] && OUTPUT_TOKENS=""
+[[ "$CACHE_CREATE" == "null" ]] && CACHE_CREATE=""
+[[ "$CACHE_READ" == "null" ]] && CACHE_READ=""
+[[ "$CTX_WINDOW" == "null" ]] && CTX_WINDOW=""
 
 if [ -n "$INPUT_TOKENS" ] && [ -n "$CTX_WINDOW" ] && [ "$CTX_WINDOW" -gt 0 ] 2>/dev/null; then
   USED_TOKENS=$(( ${INPUT_TOKENS:-0} + ${OUTPUT_TOKENS:-0} + ${CACHE_CREATE:-0} + ${CACHE_READ:-0} ))
@@ -33,9 +38,11 @@ if [ -n "$INPUT_TOKENS" ] && [ -n "$CTX_WINDOW" ] && [ "$CTX_WINDOW" -gt 0 ] 2>/
 else
   # Fallback: use integer percentages from JSON
   USED_PCT=$(get_json_value 'used_percentage')
-  USED_PCT="${USED_PCT:-0}.0"
+  [[ -z "$USED_PCT" || "$USED_PCT" == "null" ]] && USED_PCT=0
+  USED_PCT="${USED_PCT}.0"
   REMAINING_PCT=$(get_json_value 'remaining_percentage')
-  REMAINING_PCT="${REMAINING_PCT:-0}.0"
+  [[ -z "$REMAINING_PCT" || "$REMAINING_PCT" == "null" ]] && REMAINING_PCT=0
+  REMAINING_PCT="${REMAINING_PCT}.0"
 fi
 USED_PCT_INT=$(printf "%.0f" "$USED_PCT")
 
