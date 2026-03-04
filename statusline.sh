@@ -19,32 +19,35 @@ CWD=$(get_json_value 'cwd')
 
 COST_FMT=$(printf '$%.4f' "$COST")
 
-# Token-based context usage calculation (with fallback to integer percentages)
+# Auto-compact threshold from JSON (used + remaining; e.g. 95 if auto-compact at 95%)
+USED_PCT=$(get_json_value 'used_percentage')
+[[ -z "$USED_PCT" || "$USED_PCT" == "null" ]] && USED_PCT=0
+REMAINING_PCT=$(get_json_value 'remaining_percentage')
+[[ -z "$REMAINING_PCT" || "$REMAINING_PCT" == "null" ]] && REMAINING_PCT=0
+COMPACT_THRESHOLD=$(awk "BEGIN {printf \"%g\", $USED_PCT + $REMAINING_PCT}")
+
+# Token-based precise usage, normalized to auto-compact threshold
 INPUT_TOKENS=$(get_json_value 'input_tokens')
 OUTPUT_TOKENS=$(get_json_value 'output_tokens')
 CACHE_CREATE=$(get_json_value 'cache_creation_input_tokens')
 CACHE_READ=$(get_json_value 'cache_read_input_tokens')
 CTX_WINDOW=$(get_json_value 'context_window_size')
-[[ "$INPUT_TOKENS" == "null" ]] && INPUT_TOKENS=""
-[[ "$OUTPUT_TOKENS" == "null" ]] && OUTPUT_TOKENS=""
-[[ "$CACHE_CREATE" == "null" ]] && CACHE_CREATE=""
-[[ "$CACHE_READ" == "null" ]] && CACHE_READ=""
-[[ "$CTX_WINDOW" == "null" ]] && CTX_WINDOW=""
+[[ -z "$INPUT_TOKENS" || "$INPUT_TOKENS" == "null" ]] && INPUT_TOKENS=0
+[[ -z "$OUTPUT_TOKENS" || "$OUTPUT_TOKENS" == "null" ]] && OUTPUT_TOKENS=0
+[[ -z "$CACHE_CREATE" || "$CACHE_CREATE" == "null" ]] && CACHE_CREATE=0
+[[ -z "$CACHE_READ" || "$CACHE_READ" == "null" ]] && CACHE_READ=0
+[[ -z "$CTX_WINDOW" || "$CTX_WINDOW" == "null" ]] && CTX_WINDOW=0
 
-if [ -n "$INPUT_TOKENS" ] && [ -n "$CTX_WINDOW" ] && [ "$CTX_WINDOW" -gt 0 ] 2>/dev/null; then
-  USED_TOKENS=$(( ${INPUT_TOKENS:-0} + ${OUTPUT_TOKENS:-0} + ${CACHE_CREATE:-0} + ${CACHE_READ:-0} ))
-  USED_PCT=$(awk "BEGIN {printf \"%.1f\", ($USED_TOKENS / $CTX_WINDOW) * 100}")
-  REMAINING_PCT=$(awk "BEGIN {printf \"%.1f\", 100 - ($USED_TOKENS / $CTX_WINDOW) * 100}")
+if [ "$CTX_WINDOW" -gt 0 ] 2>/dev/null && awk "BEGIN {exit !($COMPACT_THRESHOLD > 0)}"; then
+  USED_TOKENS=$(( INPUT_TOKENS + OUTPUT_TOKENS + CACHE_CREATE + CACHE_READ ))
+  RAW_PCT=$(awk "BEGIN {printf \"%.4f\", ($USED_TOKENS / $CTX_WINDOW) * 100}")
+  ADJUSTED_USED=$(awk "BEGIN {printf \"%.1f\", ($RAW_PCT / $COMPACT_THRESHOLD) * 100}")
+  ADJUSTED_REMAINING=$(awk "BEGIN {printf \"%.1f\", 100 - ($RAW_PCT / $COMPACT_THRESHOLD) * 100}")
 else
-  # Fallback: use integer percentages from JSON
-  USED_PCT=$(get_json_value 'used_percentage')
-  [[ -z "$USED_PCT" || "$USED_PCT" == "null" ]] && USED_PCT=0
-  USED_PCT="${USED_PCT}.0"
-  REMAINING_PCT=$(get_json_value 'remaining_percentage')
-  [[ -z "$REMAINING_PCT" || "$REMAINING_PCT" == "null" ]] && REMAINING_PCT=0
-  REMAINING_PCT="${REMAINING_PCT}.0"
+  ADJUSTED_USED="0.0"
+  ADJUSTED_REMAINING="100.0"
 fi
-USED_PCT_INT=$(printf "%.0f" "$USED_PCT")
+ADJUSTED_USED_INT=$(printf "%.0f" "$ADJUSTED_USED")
 
 # Color definitions (use $'...' to embed actual escape characters)
 CYAN=$'\033[36m'
@@ -55,17 +58,17 @@ MAGENTA=$'\033[35m'
 DIM=$'\033[2m'
 RESET=$'\033[0m'
 
-# Context usage color coding
-if [ "$USED_PCT_INT" -ge 80 ]; then
+# Context usage color coding (based on adjusted percentage)
+if [ "$ADJUSTED_USED_INT" -ge 80 ]; then
   CTX_COLOR="$RED"
-elif [ "$USED_PCT_INT" -ge 50 ]; then
+elif [ "$ADJUSTED_USED_INT" -ge 50 ]; then
   CTX_COLOR="$YELLOW"
 else
   CTX_COLOR="$GREEN"
 fi
 
-# Context usage progress bar
-FILLED=$((USED_PCT_INT / 5))
+# Context usage progress bar (based on adjusted percentage)
+FILLED=$((ADJUSTED_USED_INT / 5))
 EMPTY=$((20 - FILLED))
 BAR=$(printf "%${FILLED}s" | tr ' ' '#')$(printf "%${EMPTY}s" | tr ' ' '-')
 
@@ -106,7 +109,7 @@ else
 fi
 
 # Line 2: Model, cost, and context usage
-LINE2="🤖 ${DIM}${MODEL}${RESET} | 💰 ${GREEN}${COST_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${USED_PCT}%${RESET} | 🔄 ${CTX_COLOR}${REMAINING_PCT}%${RESET}"
+LINE2="🤖 ${DIM}${MODEL}${RESET} | 💰 ${GREEN}${COST_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${ADJUSTED_USED}%${RESET} | 🔄 ${CTX_COLOR}${ADJUSTED_REMAINING}%${RESET}"
 
 printf '%s\n' "$LINE1"
 printf '%s\n' "$LINE2"
