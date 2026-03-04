@@ -13,18 +13,10 @@ get_json_value() {
 
 MODEL=$(get_json_value 'display_name')
 MODEL="${MODEL:-unknown}"
-COST=$(get_json_value 'total_cost_usd')
-COST="${COST:-0}"
 CWD=$(get_json_value 'cwd')
 
-COST_FMT=$(printf '$%.4f' "$COST")
-
-# Auto-compact threshold from JSON (used + remaining; e.g. 95 if auto-compact at 95%)
-USED_PCT=$(get_json_value 'used_percentage')
-[[ -z "$USED_PCT" || "$USED_PCT" == "null" ]] && USED_PCT=0
-REMAINING_PCT=$(get_json_value 'remaining_percentage')
-[[ -z "$REMAINING_PCT" || "$REMAINING_PCT" == "null" ]] && REMAINING_PCT=0
-COMPACT_THRESHOLD=$(awk "BEGIN {printf \"%g\", $USED_PCT + $REMAINING_PCT}")
+# Auto-compact threshold from env var (default 95%)
+COMPACT_THRESHOLD="${CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:-95}"
 
 # Token-based precise usage, normalized to auto-compact threshold
 INPUT_TOKENS=$(get_json_value 'input_tokens')
@@ -38,8 +30,9 @@ CTX_WINDOW=$(get_json_value 'context_window_size')
 [[ -z "$CACHE_READ" || "$CACHE_READ" == "null" ]] && CACHE_READ=0
 [[ -z "$CTX_WINDOW" || "$CTX_WINDOW" == "null" ]] && CTX_WINDOW=0
 
+USED_TOKENS=$(( INPUT_TOKENS + OUTPUT_TOKENS + CACHE_CREATE + CACHE_READ ))
+
 if [ "$CTX_WINDOW" -gt 0 ] 2>/dev/null && awk "BEGIN {exit !($COMPACT_THRESHOLD > 0)}"; then
-  USED_TOKENS=$(( INPUT_TOKENS + OUTPUT_TOKENS + CACHE_CREATE + CACHE_READ ))
   RAW_PCT=$(awk "BEGIN {printf \"%.4f\", ($USED_TOKENS / $CTX_WINDOW) * 100}")
   ADJUSTED_USED=$(awk "BEGIN {printf \"%.1f\", ($RAW_PCT / $COMPACT_THRESHOLD) * 100}")
   ADJUSTED_REMAINING=$(awk "BEGIN {printf \"%.1f\", 100 - ($RAW_PCT / $COMPACT_THRESHOLD) * 100}")
@@ -47,6 +40,19 @@ else
   ADJUSTED_USED="0.0"
   ADJUSTED_REMAINING="100.0"
 fi
+
+# Format token counts for display (e.g. 15234 -> "15.2K", 1234567 -> "1.2M")
+fmt_tokens() {
+  local n=$1
+  if [ "$n" -ge 1000000 ] 2>/dev/null; then
+    awk "BEGIN {printf \"%.1fM\", $n / 1000000}"
+  elif [ "$n" -ge 1000 ] 2>/dev/null; then
+    awk "BEGIN {printf \"%.1fK\", $n / 1000}"
+  else
+    printf '%s' "$n"
+  fi
+}
+USED_FMT=$(fmt_tokens "$USED_TOKENS")
 ADJUSTED_USED_INT=$(printf "%.0f" "$ADJUSTED_USED")
 
 # Color definitions (use $'...' to embed actual escape characters)
@@ -108,8 +114,8 @@ else
   LINE1="📂 ${CYAN}${SHORT_DIR}${RESET}"
 fi
 
-# Line 2: Model, cost, and context usage
-LINE2="🤖 ${DIM}${MODEL}${RESET} | 💰 ${GREEN}${COST_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${ADJUSTED_USED}%${RESET} | 🔄 ${CTX_COLOR}${ADJUSTED_REMAINING}%${RESET}"
+# Line 2: Model, tokens, and context usage
+LINE2="🤖 ${DIM}${MODEL}${RESET} | 📊 ${GREEN}${USED_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${ADJUSTED_USED}%${RESET} | 🔄 ${CTX_COLOR}${ADJUSTED_REMAINING}%${RESET}"
 
 printf '%s\n' "$LINE1"
 printf '%s\n' "$LINE2"
