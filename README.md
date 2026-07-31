@@ -6,7 +6,8 @@
 
 ```
 🔀 ~/source/my-project on 🌿 feature/auth
-🤖 Claude Opus 4.6 | 💰 $0.1234 | 🧠 [########------------] 40.0% | 🔄 60.0%
+🤖 Claude Opus 5 | ⚡ high | 📊 43.3K | 🧠 [####------] 40.0% | 🔄 60.0%
+⏱️  5h [█░░░░░░░]  12% · 7d [██░░░░░░]  23% (100h)
 ```
 
 ## 機能
@@ -14,13 +15,30 @@
 - **カレントディレクトリ** - ホームを `~` に置換し、深い階層は `~/.../<親>/<末尾>` に短縮
 - **Gitブランチ** - Gitリポジトリ内ではブランチ名を表示
 - **モデル名** - 使用中のClaudeモデルを表示
-- **セッションコスト** - 累計コスト（USD）をリアルタイム表示
-- **コンテキスト使用率** - Auto-Compact閾値を基準に正規化した使用率を色付きプログレスバーで表示
+- **Effortレベル** - リーズニングEffort（`low`/`medium`/`high`/`xhigh`/`max`）を表示。対応モデルのみ
+- **使用トークン数** - コンテキストに載っているトークン数（例: `43.3K`）
+- **コンテキスト使用率** - Auto-Compact閾値を基準に正規化した使用率を色付きプログレスバー（10マス、1マス=10%）で表示
 - **コンテキスト残量** - 残りコンテキストの割合を表示
+- **5時間 / 週次の使用量上限** - Claude.aiサブスクの利用枠の消費率を箱型メーターで表示（3行目）
 - **色分け**:
   - 🟢 緑: 50%未満
   - 🟡 黄: 50-79%
   - 🔴 赤: 80%以上
+
+### 使用量上限の表示（3行目）
+
+Claude.aiサブスク利用時、最初のAPI応答以降に `rate_limits` が渡されると3行目が表示されます。取得できない場合（API未応答、APIキー利用時など）は3行目ごと省略されます。
+
+```
+⏱️  5h [█░░░░░░░]  12% · 7d [██░░░░░░]  23% (100h)
+```
+
+- `5h` - 5時間セッション枠の消費率（8分割の箱型メーター、1マス=12.5%。1%以上なら最低1マス点灯）
+- `7d` - 週次（7日）枠の消費率
+- `(100h)` - 週次枠がリセットされるまでの残り時間（時間単位）。5時間枠のリセットは自明なため表示しません
+
+メーターの幅は環境変数 `CLAUDE_RATE_METER_WIDTH` で変更できます（既定8マス）。
+コンテキストバーの幅は `CLAUDE_CTX_BAR_WIDTH` で変更できます（既定10マス）。
 
 ### Auto-Compact閾値の正規化
 
@@ -82,19 +100,23 @@ chmod +x ~/.claude/statusline.sh
 
 | フィールド | 型 | 説明 |
 |-------|------|-------------|
-| `model.display_name` | string | 使用中のモデル名（例: "Claude Opus 4.6"） |
-| `cost.total_cost_usd` | number | セッションの合計コスト（USD） |
-| `context_window.used_percentage` | number | コンテキストウィンドウの使用率 |
-| `context_window.remaining_percentage` | number | コンテキストウィンドウの残量率 |
+| `model.display_name` | string | 使用中のモデル名（例: "Claude Opus 5"） |
 | `cwd` | string | カレントディレクトリ |
+| `effort.level` | string | リーズニングEffort。対応モデルでのみ渡される |
+| `context_window.context_window_size` | number | モデルのコンテキストウィンドウサイズ |
+| `context_window.current_usage.*` | number | `input_tokens` / `output_tokens` / `cache_creation_input_tokens` / `cache_read_input_tokens` |
+| `rate_limits.five_hour.used_percentage` | number | 5時間枠の消費率（0-100） |
+| `rate_limits.five_hour.resets_at` | number | 5時間枠のリセット時刻（Unix epoch秒） |
+| `rate_limits.seven_day.used_percentage` | number | 週次枠の消費率（0-100） |
+| `rate_limits.seven_day.resets_at` | number | 週次枠のリセット時刻（Unix epoch秒） |
 
 ### カスタマイズ例
 
 **プログレスバーのスタイル変更:**
 
 ```bash
-# ブロック文字を使用
-BAR=$(printf "%${FILLED}s" | tr ' ' '█')$(printf "%${EMPTY}s" | tr ' ' '░')
+# ブロック文字を使用（tr はマルチバイト文字で失敗することがあるため repeat_char を使う）
+BAR=$(repeat_char "$FILLED" '█')$(repeat_char "$EMPTY" '░')
 ```
 
 **警告しきい値の変更:**

@@ -15,6 +15,54 @@ MODEL=$(get_json_value 'display_name')
 MODEL="${MODEL:-unknown}"
 CWD=$(get_json_value 'cwd')
 
+# Flattened copy of the input, used to read nested objects safely
+# (e.g. "used_percentage" exists under both context_window and rate_limits)
+FLAT=$(printf '%s' "$input" | tr -d ' \t\n')
+
+# Extract "key": value from a nested object block (pure bash, no jq)
+# $1: object block, $2: key name
+get_block_value() {
+  local seg="$1"
+  case "$seg" in
+    *"\"$2\":"*) seg="${seg#*\"$2\":}" ;;
+    *) return ;;
+  esac
+  seg="${seg%%,*}"
+  seg="${seg%%\}*}"
+  seg="${seg%\"}"
+  seg="${seg#\"}"
+  printf '%s' "$seg"
+}
+
+# Extract a nested object block by key ("key":{...})
+# $1: parent block, $2: key name
+get_block() {
+  local seg="$1"
+  case "$seg" in
+    *"\"$2\":{"*) seg="${seg#*\"$2\":\{}" ;;
+    *) return ;;
+  esac
+  printf '%s' "${seg%%\}*}"
+}
+
+# Reasoning effort level (only present when the model supports it)
+EFFORT=$(get_block_value "$(get_block "$FLAT" 'effort')" 'level')
+
+# Claude.ai subscription usage limits (only present for subscribers
+# after the first API response)
+RATE_BLOCK=$(get_block "$FLAT" 'rate_limits')
+FIVE_PCT=""
+WEEK_PCT=""
+if [ -n "$RATE_BLOCK" ]; then
+  # get_block stops at the first "}", so re-scan the raw flat input per window
+  FIVE_BLOCK=$(get_block "$FLAT" 'five_hour')
+  WEEK_BLOCK=$(get_block "$FLAT" 'seven_day')
+  FIVE_PCT=$(get_block_value "$FIVE_BLOCK" 'used_percentage')
+  FIVE_RESET=$(get_block_value "$FIVE_BLOCK" 'resets_at')
+  WEEK_PCT=$(get_block_value "$WEEK_BLOCK" 'used_percentage')
+  WEEK_RESET=$(get_block_value "$WEEK_BLOCK" 'resets_at')
+fi
+
 # Auto-compact threshold from env var (default 95%)
 COMPACT_THRESHOLD="${CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:-95}"
 
@@ -64,6 +112,55 @@ MAGENTA=$'\033[35m'
 DIM=$'\033[2m'
 RESET=$'\033[0m'
 
+# Usage color coding by percentage (green < 50 <= yellow < 80 <= red)
+pct_color() {
+  local p
+  p=$(printf "%.0f" "$1" 2>/dev/null) || p=0
+  if [ "$p" -ge 80 ] 2>/dev/null; then
+    printf '%s' "$RED"
+  elif [ "$p" -ge 50 ] 2>/dev/null; then
+    printf '%s' "$YELLOW"
+  else
+    printf '%s' "$GREEN"
+  fi
+}
+
+# Hours left until a Unix epoch timestamp (e.g. "101h", "<1h")
+fmt_hours() {
+  local target=$1 now diff h
+  now=$(date +%s)
+  diff=$(( target - now ))
+  [ "$diff" -lt 0 ] && diff=0
+  h=$(( diff / 3600 ))
+  if [ "$h" -lt 1 ]; then
+    printf '<1h'
+  else
+    printf '%dh' "$h"
+  fi
+}
+
+# Box meter for a percentage (e.g. "████░░░░░░")
+# tr can choke on multibyte chars, so build the string in bash
+repeat_char() {
+  local n=$1 c=$2 out="" i
+  for (( i = 0; i < n; i++ )); do
+    out="${out}${c}"
+  done
+  printf '%s' "$out"
+}
+
+make_meter() {
+  local p w filled
+  p=$(printf "%.0f" "$1" 2>/dev/null) || p=0
+  w=$2
+  [ "$p" -lt 0 ] 2>/dev/null && p=0
+  [ "$p" -gt 100 ] 2>/dev/null && p=100
+  filled=$(( p * w / 100 ))
+  # Keep a single cell lit for any non-zero usage
+  [ "$filled" -eq 0 ] && [ "$p" -gt 0 ] && filled=1
+  printf '%s%s' "$(repeat_char "$filled" '█')" "$(repeat_char $(( w - filled )) '░')"
+}
+
 # Context usage color coding (based on adjusted percentage)
 if [ "$ADJUSTED_USED_INT" -ge 80 ]; then
   CTX_COLOR="$RED"
@@ -74,8 +171,12 @@ else
 fi
 
 # Context usage progress bar (based on adjusted percentage)
-FILLED=$((ADJUSTED_USED_INT / 5))
-EMPTY=$((20 - FILLED))
+# 10 cells = 10% per cell
+CTX_BAR_WIDTH="${CLAUDE_CTX_BAR_WIDTH:-10}"
+FILLED=$(( ADJUSTED_USED_INT * CTX_BAR_WIDTH / 100 ))
+[ "$FILLED" -gt "$CTX_BAR_WIDTH" ] && FILLED="$CTX_BAR_WIDTH"
+[ "$FILLED" -lt 0 ] && FILLED=0
+EMPTY=$(( CTX_BAR_WIDTH - FILLED ))
 BAR=$(printf "%${FILLED}s" | tr ' ' '#')$(printf "%${EMPTY}s" | tr ' ' '-')
 
 # Normalize backslashes to forward slashes (for Windows paths)
@@ -87,7 +188,7 @@ if [[ "$CWD" =~ ^([A-Za-z]):/ ]]; then
 fi
 
 # Shorten path to max 2 levels deep (replace $HOME with ~)
-DIR="${CWD/#$HOME/\~}"
+DIR="${CWD/#$HOME/~}"
 # Count slash-separated components
 COMP_COUNT=$(printf '%s' "$DIR" | tr -cd '/' | wc -c)
 if [ "$COMP_COUNT" -gt 3 ]; then
@@ -114,8 +215,45 @@ else
   LINE1="📂 ${CYAN}${SHORT_DIR}${RESET}"
 fi
 
-# Line 2: Model, tokens, and context usage
-LINE2="🤖 ${DIM}${MODEL}${RESET} | 📊 ${GREEN}${USED_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${ADJUSTED_USED}%${RESET} | 🔄 ${CTX_COLOR}${ADJUSTED_REMAINING}%${RESET}"
+# Effort level segment (higher effort stands out)
+EFFORT_SEG=""
+if [ -n "$EFFORT" ]; then
+  case "$EFFORT" in
+    xhigh|max) EFFORT_COLOR="$MAGENTA" ;;
+    high)      EFFORT_COLOR="$YELLOW" ;;
+    *)         EFFORT_COLOR="$GREEN" ;;
+  esac
+  EFFORT_SEG=" | ⚡ ${EFFORT_COLOR}${EFFORT}${RESET}"
+fi
+
+# Line 2: Model, effort, tokens, and context usage
+LINE2="🤖 ${DIM}${MODEL}${RESET}${EFFORT_SEG} | 📊 ${GREEN}${USED_FMT}${RESET} | 🧠 ${CTX_COLOR}[${BAR}] ${ADJUSTED_USED}%${RESET} | 🔄 ${CTX_COLOR}${ADJUSTED_REMAINING}%${RESET}"
+
+# Line 3: Subscription usage limits, compact (omitted when not available)
+# Meter width in cells; 8 cells = 12.5% per cell
+RATE_METER_WIDTH="${CLAUDE_RATE_METER_WIDTH:-8}"
+RATE_SEG=""
+if [ -n "$FIVE_PCT" ]; then
+  FIVE_COLOR=$(pct_color "$FIVE_PCT")
+  FIVE_METER=$(make_meter "$FIVE_PCT" "$RATE_METER_WIDTH")
+  FIVE_PCT_INT=$(printf "%.0f" "$FIVE_PCT" 2>/dev/null) || FIVE_PCT_INT=0
+  RATE_SEG=$(printf '5h %s[%s] %3d%%%s' "$FIVE_COLOR" "$FIVE_METER" "$FIVE_PCT_INT" "$RESET")
+fi
+if [ -n "$WEEK_PCT" ]; then
+  WEEK_COLOR=$(pct_color "$WEEK_PCT")
+  WEEK_METER=$(make_meter "$WEEK_PCT" "$RATE_METER_WIDTH")
+  WEEK_PCT_INT=$(printf "%.0f" "$WEEK_PCT" 2>/dev/null) || WEEK_PCT_INT=0
+  [ -n "$RATE_SEG" ] && RATE_SEG="${RATE_SEG} ${DIM}·${RESET} "
+  RATE_SEG="${RATE_SEG}$(printf '7d %s[%s] %3d%%%s' "$WEEK_COLOR" "$WEEK_METER" "$WEEK_PCT_INT" "$RESET")"
+  if [ -n "$WEEK_RESET" ]; then
+    RATE_SEG="${RATE_SEG} ${DIM}($(fmt_hours "$WEEK_RESET"))${RESET}"
+  fi
+fi
+LINE3=""
+[ -n "$RATE_SEG" ] && LINE3="⏱️  ${RATE_SEG}"
 
 printf '%s\n' "$LINE1"
 printf '%s\n' "$LINE2"
+[ -n "$LINE3" ] && printf '%s\n' "$LINE3"
+
+exit 0
