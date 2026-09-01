@@ -63,6 +63,14 @@ if [ -n "$RATE_BLOCK" ]; then
   WEEK_RESET=$(get_block_value "$WEEK_BLOCK" 'resets_at')
 fi
 
+# Prompt cache stats (added in Claude Code 2.1.251)
+CACHE_BLOCK=$(get_block "$FLAT" 'prompt_cache')
+CACHE_OBSERVED=$(get_block_value "$CACHE_BLOCK" 'caching_observed')
+CACHE_WARM=$(get_block_value "$CACHE_BLOCK" 'warm')
+CACHE_RATIO=$(get_block_value "$CACHE_BLOCK" 'hit_ratio')
+CACHE_RECACHE=$(get_block_value "$CACHE_BLOCK" 'recache_tokens_if_cold')
+CACHE_REQUESTS=$(get_block_value "$CACHE_BLOCK" 'requests')
+
 # Auto-compact threshold from env var (default 95%)
 COMPACT_THRESHOLD="${CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:-95}"
 
@@ -249,8 +257,39 @@ if [ -n "$WEEK_PCT" ]; then
     RATE_SEG="${RATE_SEG} ${DIM}($(fmt_hours "$WEEK_RESET"))${RESET}"
   fi
 fi
+
+# Prompt cache warning (Claude Code 2.1.251+, "prompt_cache" field).
+# Shown only when something is actually wrong: stays silent while the cache is
+# warm and hitting, so it costs no space in the common case.
+# The hit-ratio warning needs a minimum number of requests, because a ratio
+# below the threshold is normal for the first few turns of any session.
+CACHE_WARN_PCT="${CLAUDE_CACHE_WARN_PCT:-50}"
+CACHE_WARN_MIN_REQUESTS="${CLAUDE_CACHE_WARN_MIN_REQUESTS:-5}"
+CACHE_SEG=""
+if [ "$CACHE_OBSERVED" = "true" ]; then
+  CACHE_PCT=$(awk "BEGIN {printf \"%.0f\", ${CACHE_RATIO:-0} * 100}")
+  if [ "$CACHE_WARM" != "true" ]; then
+    # Cache expired (idle past its TTL): the next request rebuilds the whole
+    # prefix no matter how small the message, so batching pays off here.
+    CACHE_SEG="${YELLOW}⚠️  キャッシュ切れ${RESET} ${DIM}次の1回に +$(fmt_tokens "${CACHE_RECACHE:-0}") · まとめて送る${RESET}"
+  elif [ "${CACHE_REQUESTS:-0}" -ge "$CACHE_WARN_MIN_REQUESTS" ] 2>/dev/null \
+    && [ "$CACHE_PCT" -lt "$CACHE_WARN_PCT" ] 2>/dev/null; then
+    # Hitting poorly well into a session: something keeps invalidating the
+    # prefix. The cause is not knowable from here, so point at /cost, which
+    # breaks down the misses (Claude Code 2.1.251+).
+    CACHE_SEG="${RED}⚠️  キャッシュ低下 ${CACHE_PCT}%${RESET} ${DIM}毎回ほぼ全量を再送中 · /cost で確認${RESET}"
+  fi
+fi
+
 LINE3=""
 [ -n "$RATE_SEG" ] && LINE3="⏱️  ${RATE_SEG}"
+if [ -n "$CACHE_SEG" ]; then
+  if [ -n "$LINE3" ]; then
+    LINE3="${LINE3} ${DIM}·${RESET} ${CACHE_SEG}"
+  else
+    LINE3="$CACHE_SEG"
+  fi
+fi
 
 printf '%s\n' "$LINE1"
 printf '%s\n' "$LINE2"
